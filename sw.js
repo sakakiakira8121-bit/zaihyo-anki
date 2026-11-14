@@ -1,6 +1,6 @@
 // 財表 理論暗記：オフライン用のキャッシュ
 // アプリのファイルを更新したら VERSION の数字を1つ上げる
-const VERSION = 'zr-v1';
+const VERSION = 'zr-v2';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const FONT_CACHE = 'zr-fonts';
 

@@ -112,7 +112,7 @@ textarea{width:100%;min-height:220px;resize:vertical;border:1.5px solid var(--ru
 .kw .lab{font-size:12px;letter-spacing:.1em;color:var(--muted);font-weight:700;margin-bottom:8px;display:flex;justify-content:space-between}
 .kw label{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid var(--rule);font-size:var(--fs-m)}
 .kw input{width:22px;height:22px;margin-top:3px;accent-color:var(--ok);flex:none}
-.kw .pt{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums;font-size:var(--fs-s)}
+.kw .pt{margin-left:auto;white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums;font-size:var(--fs-s)}
 .kw .none{font-size:var(--fs-s);color:var(--muted);border-top:1px solid var(--rule);padding-top:10px}
 
 .dock{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--card);border-top:1px solid var(--rule);
@@ -160,6 +160,23 @@ textarea{width:100%;min-height:220px;resize:vertical;border:1.5px solid var(--ru
 .test .sub{font-size:var(--fs-s);color:var(--muted)}
 .test .memo{font-size:var(--fs-s);white-space:pre-wrap}
 
+/* exam */
+.primary.small{min-height:48px;font-size:var(--fs-m)}
+.tries{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:var(--fs-s);color:var(--muted);font-variant-numeric:tabular-nums}
+.tries b{color:var(--ink)}
+.tally{display:block;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:2px}
+.knote{font-size:var(--fs-s);color:var(--red);border-top:1px solid var(--rule);padding:8px 0}
+.estem,.epart{margin-bottom:14px}
+.estem{background:var(--pen-soft);border-color:transparent}
+.elab{display:flex;justify-content:space-between;gap:10px;font-weight:700;font-size:var(--fs-m);margin-bottom:8px}
+.ept{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:400;font-size:var(--fs-s)}
+.eprompt{font-family:var(--f-text);font-size:var(--fs-m);line-height:1.9;white-space:pre-wrap;word-break:break-all}
+textarea.short{min-height:100px}
+.escore{display:flex;align-items:baseline;gap:6px;background:var(--card);border:1px solid var(--rule);border-radius:var(--r);padding:14px 16px;margin-bottom:14px}
+.escore span{font-size:var(--fs-s);color:var(--muted);margin-right:6px}
+.escore b{font-size:36px;font-variant-numeric:tabular-nums;line-height:1}
+.escore em{margin-left:auto;font-style:normal;font-size:var(--fs-s);color:var(--muted)}
+
 /* settings */
 .panel{background:var(--card);border:1px solid var(--rule);border-radius:var(--r);padding:16px;margin-bottom:16px}
 .panel h3{margin:0 0 10px;font-size:var(--fs-m)}
@@ -205,15 +222,21 @@ const S = {
   minitests: ls.get('zr-minitests', []),
   progress: ls.get('zr-progress', {}),
   dirty: ls.get('zr-dirty', []),
+  parts: ls.get('zr-parts', []),
+  exams: ls.get('zr-exams', []),
+  logQ: ls.get('zr-logq', []),
+  examQ: ls.get('zr-examq', []),
   conf: ls.get('zr-conf', {url:'', token:''}),
   lastSync: ls.get('zr-lastSync', ''),
   syncErr: '', syncing: false,
-  tab: 'home', session: null,
+  tab: 'home', session: null, exam: null,
   f: Object.assign({}, DEF, ls.get('zr-filters', {}))
 };
 function persist(){
   ls.set('zr-progress', S.progress); ls.set('zr-dirty', S.dirty);
+  ls.set('zr-logq', S.logQ); ls.set('zr-examq', S.examQ); ls.set('zr-exams', S.exams);
 }
+const pendingCount = () => S.dirty.length + S.examQ.length;
 
 /* ---------- helpers ---------- */
 const stOf = id => { const p = S.progress[id]; return !p ? 'new' : (p.status === 'ok' ? 'ok' : 'ng'); };
@@ -251,11 +274,32 @@ function fmtTime(iso){
 }
 
 /* ---------- normalize data from the sheet ---------- */
-function normQ(r){
-  const kw = String(r.keywords ?? '').split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(line => {
+function parseKw(s){
+  return String(s ?? '').split(/\r?\n/).map(x => x.trim()).filter(Boolean).map(line => {
     const m = line.split(/[｜|]/);
     return {text: m[0].trim(), points: m[1] ? Number(m[1]) || 0 : 0};
   });
+}
+function normP(r){
+  return {
+    testId: String(r.testId ?? ''), order: Number(r.order) || 0, label: String(r.label ?? ''),
+    prompt: String(r.prompt ?? ''), kind: String(r.kind ?? '').trim() || '論述',
+    answer: String(r.answer ?? ''), keywords: parseKw(r.keywords), points: Number(r.points) || 0
+  };
+}
+function normX(r){
+  return {key: String(r.key ?? ''), testId: String(r.testId ?? ''), at: String(r.at ?? ''), score: Number(r.score) || 0, max: Number(r.max) || 0, detail: String(r.detail ?? '')};
+}
+/* 採点ポイントを、チェックできる行（点数つき）と注意書きに分ける */
+function kwRows(kws, total){
+  const any = kws.some(k => k.points);
+  const checkable = any ? kws.filter(k => k.points) : kws;
+  const even = !any && kws.length && total ? Math.round(total / kws.length * 10) / 10 : 0;
+  return kws.map(k => ({text: k.text, points: any ? k.points : even, note: any && !k.points}))
+    .map((k, i) => Object.assign(k, {i}));
+}
+function normQ(r){
+  const kw = parseKw(r.keywords);
   return {
     id: String(r.id), type: TYPE_IN[String(r.type).trim()] || 'qa',
     lecture: String(r.lecture ?? ''), lectureSort: Number(r.lectureSort) || 0,
@@ -286,9 +330,10 @@ async function sync(manual){
   if (!navigator.onLine){ if (manual) toast('オフラインです。つながったら自動で同期します'); return; }
   S.syncing = true; S.syncErr = ''; renderSync();
   const sent = S.dirty.filter(id => S.progress[id]).map(id => Object.assign({id}, S.progress[id]));
+  const sentLog = S.logQ.slice(), sentExam = S.examQ.slice();
   const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 25000);
   try {
-    const res = await fetch(S.conf.url, {method:'POST', body: JSON.stringify({token: S.conf.token, progress: sent}), signal: ctrl.signal});
+    const res = await fetch(S.conf.url, {method:'POST', body: JSON.stringify({token: S.conf.token, progress: sent, log: sentLog, exams: sentExam}), signal: ctrl.signal});
     const data = await res.json();
     if (!data.ok) throw new Error(data.error === 'unauthorized' ? '合言葉が違います' : '同期に失敗しました（' + (data.error || 'error') + '）');
     // progress: newer wins
@@ -303,8 +348,13 @@ async function sync(manual){
     S.dirty = S.dirty.filter(id => !(id in sentAt) || S.progress[id].lastAt !== sentAt[id]);
     S.questions = (data.questions || []).map(normQ).filter(q => q.id).sort((a, b) => a.order - b.order);
     S.minitests = (data.minitests || []).map(normM).filter(m => m.id);
+    S.parts = (data.parts || []).map(normP).filter(p => p.testId).sort((a, b) => a.order - b.order);
+    const sentLogKeys = new Set(sentLog.map(l => l.key)), sentExamKeys = new Set(sentExam.map(x => x.key));
+    S.logQ = S.logQ.filter(l => !sentLogKeys.has(l.key));
+    S.examQ = S.examQ.filter(x => !sentExamKeys.has(x.key));
+    S.exams = (data.exams || []).map(normX).filter(x => x.testId).concat(S.examQ);
     S.lastSync = new Date().toISOString();
-    ls.set('zr-questions', S.questions); ls.set('zr-minitests', S.minitests); ls.set('zr-lastSync', S.lastSync);
+    ls.set('zr-questions', S.questions); ls.set('zr-minitests', S.minitests); ls.set('zr-parts', S.parts); ls.set('zr-lastSync', S.lastSync);
     persist();
     if (manual) toast('同期しました');
   } catch (e) {
@@ -319,28 +369,37 @@ function scheduleSync(){ clearTimeout(autoT); autoT = setTimeout(() => sync(fals
 function renderSync(){
   const b = $('#syncBtn'), t = $('#syncText');
   b.classList.toggle('busy', S.syncing);
-  b.classList.toggle('pending', !S.syncing && (S.dirty.length > 0 || !!S.syncErr));
+  b.classList.toggle('pending', !S.syncing && (pendingCount() > 0 || !!S.syncErr));
   t.textContent = S.syncing ? '同期中…'
     : !S.conf.url ? '未設定'
-    : S.dirty.length ? '未送信 ' + S.dirty.length + '件'
+    : pendingCount() ? '未送信 ' + pendingCount() + '件'
     : S.syncErr ? '同期できず'
     : S.lastSync ? '同期 ' + fmtTime(S.lastSync) : '未同期';
 }
 
 /* ---------- render ---------- */
 function render(){
-  const inSession = S.tab === 'session';
+  const inSession = S.tab === 'session' || S.tab === 'exam';
   $('#tabs').hidden = inSession;
   document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-current', String(b.dataset.tab === S.tab)));
   if (S.tab === 'home') renderHome();
   else if (S.tab === 'list') renderList();
   else if (S.tab === 'tests') renderTests();
   else if (S.tab === 'settings') renderSettings();
+  else if (S.tab === 'exam') renderExam();
   else renderSession();
   if (!inSession) $('#dock').hidden = true;
   renderSync();
 }
-function refresh(){ if (S.tab !== 'session') render(); }
+function refresh(){ if (S.tab !== 'session' && S.tab !== 'exam') render(); }
+/* 採点ポイントのチェックリスト。attrs(i) はチェックボックスに付ける属性 */
+function kwHTML(rows, checked, attrs){
+  return rows.map(k => k.note
+    ? `<div class="knote">${esc(k.text)}</div>`
+    : `<label><input type="checkbox" ${attrs(k.i)} ${checked.has(k.i) ? 'checked' : ''}><span>${esc(k.text)}</span>${k.points ? `<span class="pt">${esc(k.points)}点</span>` : ''}</label>`).join('');
+}
+const sumPts = (rows, checked) => Math.round(rows.filter(k => !k.note && checked.has(k.i)).reduce((a, k) => a + k.points, 0) * 10) / 10;
+const maxPts = rows => Math.round(rows.filter(k => !k.note).reduce((a, k) => a + k.points, 0) * 10) / 10;
 
 function notReady(){
   if (S.questions.length) return '';
@@ -401,7 +460,7 @@ function renderList(){
       ${[...byLec.get(l)].map(([k, qs]) => `<div class="item"><h4>${esc(k)}</h4>
         ${qs.map(q => `<button class="row" data-action="one" data-id="${esc(q.id)}">
           <i class="dot ${stOf(q.id)}" aria-label="${({ok:'覚えた',ng:'まだ',new:'未学習'})[stOf(q.id)]}"></i>
-          <span class="t">${esc(q.section ? q.section + '｜' : '')}${esc(q.topic)}</span>
+          <span class="t">${esc(q.section ? q.section + '｜' : '')}${esc(q.topic)}${(() => { const p = S.progress[q.id]; return p && p.seen ? `<span class="tally">○${Math.max(p.seen - (p.ngCount || 0), 0)}　×${p.ngCount || 0}</span>` : ''; })()}</span>
           <span class="tag ${q.type === 'essay' ? 'essay' : ''}">${TYPE[q.type]}</span>
           ${q.rank ? `<span class="rank ${q.rank}">${q.rank}</span>` : ''}
         </button>`).join('')}</div>`).join('')}
@@ -419,11 +478,17 @@ function renderTests(){
     ${scored.length ? `<div class="trend"><div class="lab">点数の推移</div>
       ${scored.map(m => { const p = Math.round(m.score / m.max * 100); return `<div class="tr"><span>${esc(m.name)}</span><span class="track"><i style="width:${Math.min(p, 100)}%"></i></span><span class="v">${p}%</span></div>`; }).join('')}
     </div>` : ''}
-    ${[...asc].reverse().map(m => { const ids = m.questionIds.filter(id => S.questions.some(q => q.id === id)); return `<div class="test">
+    ${[...asc].reverse().map(m => {
+      const ids = m.questionIds.filter(id => S.questions.some(q => q.id === id));
+      const hasParts = S.parts.some(p => p.testId === m.id);
+      const tries = S.exams.filter(x => x.testId === m.id).sort((a, b) => b.at.localeCompare(a.at));
+      return `<div class="test">
       <div class="hd"><span class="nm">${esc(m.name)}</span>${m.score != null ? `<span class="sc">${esc(m.score)}<small> / ${esc(m.max ?? '')}点</small></span>` : ''}</div>
-      <div class="sub">${esc(m.date)}${m.range ? '　範囲：' + esc(m.range) : ''}</div>
+      <div class="sub">${esc(m.date)}${m.range ? (m.date ? '　' : '') + '範囲：' + esc(m.range) : ''}</div>
       ${m.memo ? `<div class="memo">${esc(m.memo)}</div>` : ''}
-      ${ids.length ? `<button class="ghost" data-action="test" data-id="${esc(m.id)}">この回の問題を解く（${ids.length}問）</button>` : ''}
+      ${tries.length ? `<div class="tries">解き直し　${tries.slice(0, 4).map(x => `<span>${esc(fmtTime(x.at))}　<b>${esc(x.score)}</b>/${esc(x.max)}</span>`).join('')}${tries.length > 4 ? `<span>ほか${tries.length - 4}回</span>` : ''}</div>` : ''}
+      ${hasParts ? `<button class="primary small" data-action="exam" data-id="${esc(m.id)}">本番形式で解く</button>` : ''}
+      ${ids.length ? `<button class="ghost" data-action="test" data-id="${esc(m.id)}">この回の論点を1問ずつ解く（${ids.length}問）</button>` : ''}
     </div>`; }).join('')}`;
 }
 
@@ -432,7 +497,7 @@ function renderSettings(){
     <div class="panel"><h3>同期</h3>
       <dl class="kv">
         <dt>最終同期</dt><dd>${S.lastSync ? fmtTime(S.lastSync) : 'まだ'}</dd>
-        <dt>未送信の記録</dt><dd>${S.dirty.length}件</dd>
+        <dt>未送信の記録</dt><dd>${pendingCount()}件</dd>
         <dt>問題数</dt><dd>${S.questions.length}問</dd>
       </dl>
       ${S.syncErr ? `<p class="err">${esc(S.syncErr)}</p>` : ''}
@@ -478,15 +543,15 @@ function renderSession(){
       ${s.revealed ? '' : '<p class="hint">頭の中で答えてから「答えを見る」を押します。</p>'}`;
   } else {
     const draft = ls.get('zr-draft-' + q.id, '');
-    const kws = q.keywords || [];
-    const pts = kws.reduce((a, k) => a + (k.points || 0), 0);
-    const got = kws.reduce((a, k, i) => a + (s.checked.has(i) ? (k.points || 0) : 0), 0);
+    const rows = kwRows(q.keywords || [], 0);
+    const pts = maxPts(rows), got = sumPts(rows, s.checked);
+    const nCheck = rows.filter(k => !k.note).length;
     body = `<div class="sheet"><div class="prompt">${esc(q.prompt)}</div>
       ${s.revealed ? `
         ${draft.trim() ? `<div class="mine"><div class="lab">自分の答案</div><p>${esc(draft)}</p></div>` : ''}
         <div class="answer"><div class="lab">模範解答</div><p>${esc(q.answer)}</p></div>
-        <div class="kw"><div class="lab"><span>採点キーワード</span>${kws.length ? `<span>${s.checked.size} / ${kws.length}${pts ? `　${got} / ${pts}点` : ''}</span>` : ''}</div>
-          ${kws.length ? kws.map((k, i) => `<label><input type="checkbox" id="kw-${i}" data-action="kw" data-i="${i}" ${s.checked.has(i) ? 'checked' : ''}><span>${esc(k.text)}</span>${k.points ? `<span class="pt">${esc(k.points)}点</span>` : ''}</label>`).join('')
+        <div class="kw"><div class="lab"><span>採点キーワード</span>${nCheck ? `<span>${rows.filter(k => !k.note && s.checked.has(k.i)).length} / ${nCheck}${pts ? `　${got} / ${pts}点` : ''}</span>` : ''}</div>
+          ${rows.length ? kwHTML(rows, s.checked, i => `id="kw-${i}" data-action="kw" data-i="${i}"`)
             : `<div class="none">採点キーワードはまだ登録されていません。ミニテストの分析後に追加します。今は模範解答と見比べて採点してください。</div>`}
         </div>` : `
         <div class="write"><label for="essay">答案を書く</label><textarea id="essay" data-id="${esc(q.id)}" placeholder="ここに書く（書かずに答え合わせしてもかまいません）">${esc(draft)}</textarea></div>`}
@@ -519,9 +584,66 @@ function renderSummary(){
 }
 function record(q, ok){
   const prev = S.progress[q.id] || {};
-  S.progress[q.id] = {status: ok ? 'ok' : 'ng', ngCount: (prev.ngCount || 0) + (ok ? 0 : 1), seen: (prev.seen || 0) + 1, lastAt: new Date().toISOString()};
+  const at = new Date().toISOString();
+  S.progress[q.id] = {status: ok ? 'ok' : 'ng', ngCount: (prev.ngCount || 0) + (ok ? 0 : 1), seen: (prev.seen || 0) + 1, lastAt: at};
   if (!S.dirty.includes(q.id)) S.dirty.push(q.id);
+  S.logQ.push({key: q.id + '@' + at, id: q.id, ok, at});
   persist(); renderSync(); scheduleSync();
+}
+
+/* ---------- exam (本番形式) ---------- */
+const draftKey = (t, o) => 'zr-ex-' + t + '-' + o;
+function startExam(testId){
+  S.exam = {testId, revealed:false, checked:{}};
+  S.tab = 'exam'; render(); window.scrollTo(0, 0);
+}
+function examParts(){ return S.parts.filter(p => p.testId === S.exam.testId).sort((a, b) => a.order - b.order); }
+function examScore(){
+  let score = 0, max = 0; const detail = [];
+  examParts().filter(p => p.kind !== 'なし').forEach(p => {
+    const rows = kwRows(p.keywords, p.points), ch = S.exam.checked[p.order] || new Set();
+    const got = sumPts(rows, ch), mx = p.points || maxPts(rows);
+    score += got; max += mx; detail.push((p.label || '問') + ' ' + got + '/' + mx);
+  });
+  return {score: Math.round(score * 10) / 10, max, detail: detail.join('、')};
+}
+function renderExam(){
+  const x = S.exam, m = S.minitests.find(t => t.id === x.testId) || {name: ''};
+  const parts = examParts();
+  const sc = examScore();
+  $('#main').innerHTML = `
+    <div class="ptop"><span class="count">本番形式　満点${sc.max}点</span><button class="ghost" data-action="examquit">終了</button></div>
+    <h2 class="topic">${esc(m.name)} ミニテスト</h2>
+    ${x.revealed ? `<div class="escore"><span>自己採点</span><b>${sc.score}</b><small> / ${sc.max}点</small>${m.score != null ? `<em>本番 ${esc(m.score)}点</em>` : ''}</div>` : '<p class="hint">紙のミニテストと同じ順に並んでいます。書き終えたら下の「答え合わせ」を押します。書いた答案はこの端末に残ります。</p>'}
+    ${parts.map(p => {
+      if (p.kind === 'なし') return `<div class="sheet estem">${p.label ? `<div class="elab">${esc(p.label)}</div>` : ''}<div class="eprompt">${esc(p.prompt)}</div></div>`;
+      const draft = ls.get(draftKey(x.testId, p.order), '');
+      const rows = kwRows(p.keywords, p.points), ch = x.checked[p.order] || new Set();
+      const mx = p.points || maxPts(rows);
+      return `<section class="sheet epart">
+        <div class="elab"><span>${esc(p.label)}</span><span class="ept">${x.revealed ? `${sumPts(rows, ch)} / ` : ''}${mx}点</span></div>
+        <div class="eprompt">${esc(p.prompt)}</div>
+        ${x.revealed ? `
+          <div class="mine"><div class="lab">自分の答案</div><p>${draft.trim() ? esc(draft) : '（未記入）'}</p></div>
+          <div class="answer"><div class="lab">模範解答</div><p>${esc(p.answer)}</p></div>
+          <div class="kw"><div class="lab"><span>採点ポイント${p.keywords.some(k => k.points) ? '' : '（内訳がないので均等に配分）'}</span></div>
+            ${kwHTML(rows, ch, i => `data-action="ekw" data-p="${p.order}" data-i="${i}"`)}</div>`
+        : `<div class="write"><textarea class="${p.kind === '短答' ? 'short' : ''}" id="ex-${p.order}" data-exkey="${esc(draftKey(x.testId, p.order))}" aria-label="${esc(p.label)}の答案" placeholder="${p.kind === '短答' ? '例：①○○　②○○' : 'ここに書く'}">${esc(draft)}</textarea></div>`}
+      </section>`;
+    }).join('')}`;
+  $('#dockIn').innerHTML = x.revealed
+    ? `<button class="b-ok" data-action="examsave">記録する（${sc.score}/${sc.max}点）</button>`
+    : `<button class="b-reveal" data-action="examreveal">答え合わせ</button>`;
+  $('#dock').hidden = false;
+}
+function saveExam(){
+  const x = S.exam, sc = examScore(), at = new Date().toISOString();
+  const rec = {key: x.testId + '@' + at, testId: x.testId, at, score: sc.score, max: sc.max, detail: sc.detail};
+  S.examQ.push(rec); S.exams.push(rec);
+  examParts().forEach(p => { try{ localStorage.removeItem(draftKey(x.testId, p.order)); }catch(e){} });
+  persist(); scheduleSync();
+  S.exam = null; S.tab = 'tests'; render(); window.scrollTo(0, 0);
+  toast(sc.score + '点で記録しました');
 }
 
 /* ---------- events ---------- */
@@ -556,6 +678,10 @@ document.addEventListener('click', e => {
     s.i++; s.revealed = false; s.open = new Set(); s.checked = new Set();
     renderSession(); window.scrollTo(0, 0);
   }
+  else if (a === 'exam'){ startExam(el.dataset.id); }
+  else if (a === 'examreveal'){ S.exam.revealed = true; renderExam(); window.scrollTo(0, 0); }
+  else if (a === 'examsave'){ saveExam(); }
+  else if (a === 'examquit'){ S.exam = null; S.tab = 'tests'; render(); }
   else if (a === 'retry'){ startSession(s.results.filter(r => !r.ok).map(r => r.q)); }
   else if (a === 'quit' || a === 'home'){ S.session = null; S.tab = 'home'; render(); }
 });
@@ -569,10 +695,16 @@ document.addEventListener('change', e => {
     const i = Number(el.dataset.i);
     el.checked ? S.session.checked.add(i) : S.session.checked.delete(i);
     renderSession();
+  } else if (el.dataset.action === 'ekw'){
+    const p = Number(el.dataset.p), i = Number(el.dataset.i);
+    const set = S.exam.checked[p] || (S.exam.checked[p] = new Set());
+    el.checked ? set.add(i) : set.delete(i);
+    const y = window.scrollY; renderExam(); window.scrollTo(0, y);
   }
 });
 document.addEventListener('input', e => {
   if (e.target.id === 'essay') ls.set('zr-draft-' + e.target.dataset.id, e.target.value);
+  if (e.target.dataset.exkey) ls.set(e.target.dataset.exkey, e.target.value);
 });
 document.addEventListener('submit', e => {
   if (e.target.id !== 'confForm') return;
