@@ -675,6 +675,7 @@ document.addEventListener('click', e => {
   else if (a === 'rate'){
     const q = s.cards[s.i]; const ok = el.dataset.ok === '1';
     s.results.push({q, ok}); record(q, ok);
+    if (q.type === 'essay'){ try{ localStorage.removeItem('zr-draft-' + q.id); }catch(e){} }
     s.i++; s.revealed = false; s.open = new Set(); s.checked = new Set();
     renderSession(); window.scrollTo(0, 0);
   }
